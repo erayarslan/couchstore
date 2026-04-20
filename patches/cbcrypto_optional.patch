@@ -1,0 +1,12 @@
+diff --git a/include/cbcrypto/file_reader.h b/include/cbcrypto/file_reader.h
+index bc9579d..df8be65 100644
+--- a/include/cbcrypto/file_reader.h
++++ b/include/cbcrypto/file_reader.h
+@@ -15,6 +15,7 @@
+ #include <filesystem>
+ #include <functional>
+ #include <span>
++#include <optional>
+ #include <string>
+ 
+ namespace cb::crypto {
