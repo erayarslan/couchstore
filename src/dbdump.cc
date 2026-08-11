@@ -24,6 +24,7 @@
 #include <platform/getpass.h>
 #include <platform/split_string.h>
 #include <platform/string_hex.h>
+#include <platform/utf8.h>
 #include <storage_common/doc_key_encoder.h>
 #include <storage_common/local_doc_parser.h>
 #include <xattr/blob.h>
@@ -103,7 +104,7 @@ struct CouchbaseRevMeta{
 
 // Additional Couchbase V1 metadata:
 struct CouchbaseRevMetaV1 {
-    uint8_t flex_code;
+    uint8_t deleteSource;
     uint8_t datatype;
 };
 
@@ -404,6 +405,19 @@ static auto getExpiryLabel(bool isDelete) {
     return isDelete ? "delete_time" : "expiry";
 }
 
+/**
+ * The data service does not require keys to be UTF-8; the JSON dump() renders
+ * invalid bytes as U+FFFD (via error_handler_t::replace), so a non-UTF-8 key is
+ * additionally flagged with "id_not_utf8" to keep it distinguishable from a
+ * genuine key. See MB-73006.
+ */
+static void setJsonId(nlohmann::json& json, std::string_view id) {
+    json["id"] = id;
+    if (!cb::is_valid_utf8(id)) {
+        json["id_not_utf8"] = true;
+    }
+}
+
 static int foldprint(Db *db, DocInfo *docinfo, void *ctx)
 {
     int *count = (int *) ctx;
@@ -419,9 +433,10 @@ static int foldprint(Db *db, DocInfo *docinfo, void *ctx)
     if (dumpJson) {
         json["seq"] = docinfo->db_seq;
         if (decodeNamespace) {
-            json["id"] = buildCollectionInfoId(&docinfo->id);
+            setJsonId(json, buildCollectionInfoId(&docinfo->id));
         } else {
-            json["id"] = std::string_view{docinfo->id.buf, docinfo->id.size};
+            setJsonId(json,
+                      std::string_view{docinfo->id.buf, docinfo->id.size});
         }
     } else {
         if (mode == DumpBySequence) {
@@ -478,7 +493,7 @@ static int foldprint(Db *db, DocInfo *docinfo, void *ctx)
     if (docinfo->rev_meta.size >=
         sizeof(CouchbaseRevMeta) + sizeof(CouchbaseRevMetaV1)) {
         // 18 bytes of rev_meta indicates CouchbaseRevMetaV1 - adds
-        // flex_meta_code (1B) and datatype (1B)
+        // deleteSource (1B) and datatype (1B)
         if (docinfo->rev_meta.size <
             sizeof(CouchbaseRevMeta) + sizeof(CouchbaseRevMetaV1)) {
             printf("     Error parsing the document: Possible corruption\n");
@@ -488,12 +503,10 @@ static int foldprint(Db *db, DocInfo *docinfo, void *ctx)
                 (const CouchbaseRevMetaV1*)(docinfo->rev_meta.buf +
                                             sizeof(CouchbaseRevMeta));
 
-        if (metaV1->flex_code < 0x01) {
-            printf("     Error: Flex code mismatch (bad code: %d)\n",
-                   metaV1->flex_code);
-            return 1;
-        }
-        ttl_delete = ((metaV1->flex_code >> 7) & 0x1) == 1;
+        // deleteSource is the MSB of the first byte of V1 metadata. This is
+        // because this field used to have a dual meaning, but now only one
+        // meaning.
+        ttl_delete = metaV1->deleteSource >> 7;
 
         datatype = metaV1->datatype;
         const auto datatype_string = cb::mcbp::datatype::to_string(datatype);
@@ -662,7 +675,15 @@ static int foldprint(Db *db, DocInfo *docinfo, void *ctx)
     }
 
     if(dumpJson) {
-        std::cout << json.dump(-1, ' ', true) << std::endl;
+        // Document keys (and raw bodies) are not required to be UTF-8, but
+        // dump() throws on invalid UTF-8 by default. Use the 'replace' error
+        // handler so invalid sequences are emitted as U+FFFD instead of
+        // aborting the dump. See MB-73006.
+        std::cout << json.dump(-1,
+                               ' ',
+                               true,
+                               nlohmann::json::error_handler_t::replace)
+                  << std::endl;
     }
 
     couchstore_free_document(doc);
@@ -804,7 +825,7 @@ static couchstore_error_t local_doc_print_json(couchfile_lookup_request* rq,
     }
 
     nlohmann::json parsed;
-    parsed["id"] = std::string(k->buf, k->size);
+    setJsonId(parsed, std::string_view{k->buf, k->size});
     try {
         parsed["value"] = nlohmann::json::parse(value.buf, value.buf + value.size);
     } catch (const nlohmann::json::exception&) {
@@ -816,7 +837,14 @@ static couchstore_error_t local_doc_print_json(couchfile_lookup_request* rq,
         return COUCHSTORE_ERROR_CORRUPT;
     }
 
-    std::cout << parsed.dump(-1, ' ', true) << std::endl;
+    // Local-doc keys are not guaranteed to be UTF-8; use the 'replace' error
+    // handler so invalid sequences become U+FFFD rather than aborting the
+    // dump. See MB-73006.
+    std::cout << parsed.dump(-1,
+                             ' ',
+                             true,
+                             nlohmann::json::error_handler_t::replace)
+              << std::endl;
 
     return COUCHSTORE_SUCCESS;
 }
