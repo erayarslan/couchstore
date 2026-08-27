@@ -1,4 +1,4 @@
-CMAKE_MINIMUM_REQUIRED(VERSION 3.12)
+CMAKE_MINIMUM_REQUIRED(VERSION 3.15)
 PROJECT(Couchstore)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -6,6 +6,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CB_GNU_CXX11_OPTION "-std=gnu++17")
 
 if (WIN32)
     message(FATAL_ERROR "No Windows")
@@ -36,6 +37,9 @@ cmake_policy(SET CMP0052 OLD)
 cmake_policy(SET CMP0079 NEW)
 
 macro(cb_enable_unity_build target)
+endmacro()
+
+macro(add_sanitizers target)
 endmacro()
 
 macro(cb_add_test_executable name)
@@ -407,7 +411,7 @@ if (NOT folly_POPULATED)
     file(WRITE ${folly_SOURCE_DIR}/CMake/FindGlog.cmake "set(GLOG_FOUND TRUE)\nset(GLOG_LIBRARY glog)\nset(GLOG_INCLUDE_DIR \"${_glog_public_include}\")\n")
     file(WRITE ${folly_SOURCE_DIR}/build/fbcode_builder/CMake/FindLibEvent.cmake "set(LibEvent_FOUND TRUE)\nset(LIBEVENT_LIB libevent::core)\nset(LIBEVENT_INCLUDE_DIR \"${libevent_SOURCE_DIR}/include\")\n")
     file(WRITE ${folly_SOURCE_DIR}/build/fbcode_builder/CMake/FindGlog.cmake "set(GLOG_FOUND TRUE)\nset(GLOG_LIBRARY glog)\nset(GLOG_INCLUDE_DIR \"${_glog_public_include}\")\n")
-endif()
+endif ()
 
 set(_old_build_shared_libs ${BUILD_SHARED_LIBS})
 set(_old_skip_install ${CMAKE_SKIP_INSTALL_RULES})
