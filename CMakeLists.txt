@@ -1,4 +1,4 @@
-CMAKE_MINIMUM_REQUIRED(VERSION 3.12)
+CMAKE_MINIMUM_REQUIRED(VERSION 3.15)
 PROJECT(Couchstore)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -6,10 +6,31 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CB_GNU_CXX11_OPTION "-std=gnu++17")
 
 if (WIN32)
     message(FATAL_ERROR "No Windows")
 endif ()
+
+if (NOT DEFINED PYTHON_EXE)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    set(PYTHON_EXE "${Python3_EXECUTABLE}" CACHE FILEPATH "Path to python executable")
+endif ()
+
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--disable-new-dtags")
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--disable-new-dtags")
+
+set(USER_LOCAL_SEARCH_PATHS "")
+set(USER_LOCAL_LIB_DIRS "")
+if (DEFINED ENV{HOME})
+    file(GLOB _user_local_libs "$ENV{HOME}/.local/lib/*-linux-gnu" "$ENV{HOME}/.local/lib64" "$ENV{HOME}/.local/lib")
+    list(APPEND USER_LOCAL_LIB_DIRS ${_user_local_libs})
+    list(APPEND USER_LOCAL_SEARCH_PATHS "$ENV{HOME}/.local" ${_user_local_libs})
+endif ()
+
+set(CMAKE_BUILD_RPATH "${USER_LOCAL_LIB_DIRS};${CMAKE_CURRENT_BINARY_DIR}")
+set(CMAKE_INSTALL_RPATH "${USER_LOCAL_LIB_DIRS};${CMAKE_CURRENT_BINARY_DIR}")
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
 INCLUDE(CheckFunctionExists)
 INCLUDE(CheckIncludeFile)
@@ -31,11 +52,15 @@ endif ()
 message(STATUS "Using ${COUCHSTORE_BUILD_JOBS} parallel jobs for third-party builds")
 
 set(FETCHCONTENT_UPDATES_DISCONNECTED ON CACHE BOOL "Disconnect FetchContent updates")
+set(BUILD_TESTING OFF CACHE BOOL "Build tests for subprojects" FORCE)
 
 cmake_policy(SET CMP0052 OLD)
 cmake_policy(SET CMP0079 NEW)
 
 macro(cb_enable_unity_build target)
+endmacro()
+
+macro(add_sanitizers target)
 endmacro()
 
 macro(cb_add_test_executable name)
@@ -45,15 +70,7 @@ endmacro()
 macro(ENABLE_CODE_COVERAGE_REPORT)
 endmacro()
 
-INCLUDE_DIRECTORIES(BEFORE ${CMAKE_INSTALL_PREFIX}/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
-        ${CMAKE_CURRENT_BINARY_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR})
 
-if (LUA_FOUND)
-    include_directories(AFTER SYSTEM {LUA_INCLUDE_DIR})
-endif (LUA_FOUND)
 
 CHECK_INCLUDE_FILES("netinet/in.h" HAVE_NETINET_IN_H)
 CHECK_INCLUDE_FILES("inttypes.h" HAVE_INTTYPES_H)
@@ -151,6 +168,7 @@ set(GFLAGS_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(GFLAGS_BUILD_GFLAGS_LIB ON CACHE BOOL "" FORCE)
 set(GFLAGS_BUILD_GFLAGS_NOSTATIC_LIBS OFF CACHE BOOL "" FORCE)
 set(GFLAGS_BUILD_GFLAGS_NOTHREADS_LIB ON CACHE BOOL "" FORCE)
+set(GFLAGS_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 
 FetchContent_Declare(
         gflags
@@ -285,10 +303,11 @@ set(LibEvent_FOUND TRUE CACHE INTERNAL "" FORCE)
 set(LIBEVENT_INCLUDE_DIR
         "${libevent_SOURCE_DIR}/include" CACHE PATH "libevent include dir" FORCE)
 
+set(SIMDUTF_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
         simdutf
         GIT_REPOSITORY https://github.com/couchbasedeps/simdutf.git
-        GIT_TAG v7.0.0
+        GIT_TAG v7.7.1
 )
 
 FetchContent_MakeAvailable(simdutf)
@@ -323,6 +342,7 @@ if (NOT TARGET spdlog::spdlog)
 endif ()
 
 set(BENCHMARK_USE_BUNDLED_GTEST OFF CACHE BOOL "Use bundled gtest" FORCE)
+set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "Enable testing of the benchmark library." FORCE)
 
 FetchContent_Declare(
         benchmark
@@ -339,10 +359,10 @@ FetchContent_Declare(
         GIT_REPOSITORY https://github.com/couchbasedeps/snappy.git
         GIT_TAG 1.2.2
 )
+FetchContent_MakeAvailable(snappy)
 set(SNAPPY_INCLUDE_DIR "${snappy_SOURCE_DIR}" CACHE PATH "snappy include dir" FORCE)
 set(SNAPPY_LIBRARY snappy CACHE STRING "snappy library target" FORCE)
 set(SNAPPY_LIBRARIES snappy CACHE STRING "snappy libraries target" FORCE)
-FetchContent_MakeAvailable(snappy)
 set_target_properties(snappy PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 set(WITH_GFLAGS OFF CACHE BOOL "" FORCE)
@@ -407,7 +427,7 @@ if (NOT folly_POPULATED)
     file(WRITE ${folly_SOURCE_DIR}/CMake/FindGlog.cmake "set(GLOG_FOUND TRUE)\nset(GLOG_LIBRARY glog)\nset(GLOG_INCLUDE_DIR \"${_glog_public_include}\")\n")
     file(WRITE ${folly_SOURCE_DIR}/build/fbcode_builder/CMake/FindLibEvent.cmake "set(LibEvent_FOUND TRUE)\nset(LIBEVENT_LIB libevent::core)\nset(LIBEVENT_INCLUDE_DIR \"${libevent_SOURCE_DIR}/include\")\n")
     file(WRITE ${folly_SOURCE_DIR}/build/fbcode_builder/CMake/FindGlog.cmake "set(GLOG_FOUND TRUE)\nset(GLOG_LIBRARY glog)\nset(GLOG_INCLUDE_DIR \"${_glog_public_include}\")\n")
-endif()
+endif ()
 
 set(_old_build_shared_libs ${BUILD_SHARED_LIBS})
 set(_old_skip_install ${CMAKE_SKIP_INSTALL_RULES})
@@ -503,7 +523,7 @@ FetchContent_Declare(
         platform
         GIT_REPOSITORY https://github.com/couchbase/platform.git
         GIT_TAG master
-        PATCH_COMMAND patch -N include/cbcrypto/file_reader.h < "${CMAKE_CURRENT_LIST_DIR}/patches/cbcrypto_optional.patch" || true
+        PATCH_COMMAND patch -N include/cbcrypto/file_reader.h < "${CMAKE_CURRENT_LIST_DIR}/patches/cbcrypto_optional.patch" || true && patch -N CMakeLists.txt < "${CMAKE_CURRENT_LIST_DIR}/patches/platform_subdirectories.patch" || true
 )
 FetchContent_MakeAvailable(platform)
 target_include_directories(platform PUBLIC ${fmt_SOURCE_DIR}/include ${zlib_SOURCE_DIR} ${platform_SOURCE_DIR}/cbcrypto)
@@ -515,6 +535,124 @@ FetchContent_Declare(
         GIT_TAG master
 )
 FetchContent_MakeAvailable(phosphor)
+set(BUILD_TESTING ON CACHE BOOL "Build tests" FORCE)
+
+if (ICU_UC_LIB MATCHES "\\.a$")
+    unset(ICU_UC_LIB CACHE)
+    unset(ICU_I18N_LIB CACHE)
+    unset(ICU_DATA_LIB CACHE)
+endif ()
+
+if (NOT ICU_FOUND)
+    set(_saved_find_lib_suffixes ${CMAKE_FIND_LIBRARY_SUFFIXES})
+    set(CMAKE_FIND_LIBRARY_SUFFIXES ".so" ".dylib" ".dll" ".a")
+    find_package(ICU COMPONENTS uc i18n QUIET)
+    if (NOT ICU_FOUND)
+        find_path(ICU_INCLUDE_DIRS NAMES unicode/utf8.h unicode/ucol.h
+                HINTS ${USER_LOCAL_SEARCH_PATHS}
+                PATH_SUFFIXES include)
+        find_library(ICU_UC_LIB NAMES libicuuc.so icuuc
+                HINTS ${USER_LOCAL_SEARCH_PATHS}
+                PATH_SUFFIXES lib)
+        find_library(ICU_I18N_LIB NAMES libicui18n.so icui18n
+                HINTS ${USER_LOCAL_SEARCH_PATHS}
+                PATH_SUFFIXES lib)
+        find_library(ICU_DATA_LIB NAMES libicudata.so icudata
+                HINTS ${USER_LOCAL_SEARCH_PATHS}
+                PATH_SUFFIXES lib)
+        if (ICU_UC_LIB AND ICU_I18N_LIB)
+            set(ICU_LIBRARIES "${ICU_UC_LIB}" "${ICU_I18N_LIB}")
+            if (ICU_DATA_LIB)
+                list(APPEND ICU_LIBRARIES "${ICU_DATA_LIB}")
+            endif ()
+            set(ICU_FOUND TRUE)
+        endif ()
+    endif ()
+    set(CMAKE_FIND_LIBRARY_SUFFIXES ${_saved_find_lib_suffixes})
+endif ()
+
+if (NOT V8_FOUND)
+    set(_saved_find_lib_suffixes ${CMAKE_FIND_LIBRARY_SUFFIXES})
+    set(CMAKE_FIND_LIBRARY_SUFFIXES ".so" ".dylib" ".dll" ".a")
+    find_package(V8 QUIET)
+    if (NOT V8_FOUND)
+        find_library(V8_LIBRARIES NAMES libnode.so libv8.so node v8
+                HINTS ${USER_LOCAL_SEARCH_PATHS}
+                PATHS /usr/lib /usr/lib/x86_64-linux-gnu /usr/local/lib
+                PATH_SUFFIXES lib/x86_64-linux-gnu lib64 lib)
+
+        if (V8_LIBRARIES)
+            get_filename_component(_v8_lib_dir "${V8_LIBRARIES}" DIRECTORY)
+            get_filename_component(_v8_prefix "${_v8_lib_dir}" DIRECTORY)
+            get_filename_component(_v8_root "${_v8_prefix}" DIRECTORY)
+
+            find_path(V8_INCLUDE_DIR NAMES v8.h
+                    HINTS ${_v8_root} ${_v8_prefix} ${_v8_lib_dir} ${USER_LOCAL_SEARCH_PATHS}
+                    PATH_SUFFIXES include/v8 include/node include/nodejs/deps/v8/include include
+                    NO_DEFAULT_PATH)
+        endif ()
+
+        if (NOT V8_INCLUDE_DIR)
+            find_path(V8_INCLUDE_DIR NAMES v8.h
+                    HINTS ${USER_LOCAL_SEARCH_PATHS}
+                    PATH_SUFFIXES include/v8 include/node include/nodejs/deps/v8/include include)
+        endif ()
+
+        if (V8_INCLUDE_DIR AND V8_LIBRARIES)
+            set(V8_FOUND TRUE)
+        endif ()
+    endif ()
+    set(CMAKE_FIND_LIBRARY_SUFFIXES ${_saved_find_lib_suffixes})
+endif ()
+
+if (NOT LUA_FOUND)
+    find_package(Lua 5.1 EXACT QUIET)
+    if (NOT LUA_FOUND)
+        find_package(Lua QUIET)
+    endif ()
+    if (NOT LUA_FOUND)
+        find_path(LUA_INCLUDE_DIR NAMES lua.h
+                HINTS ${USER_LOCAL_SEARCH_PATHS}
+                PATH_SUFFIXES include/lua5.1 include/lua-5.1 include/lua include)
+        find_library(LUA_LIBRARIES NAMES lua5.1 lua51 lua
+                HINTS ${USER_LOCAL_SEARCH_PATHS}
+                PATH_SUFFIXES lib)
+        if (LUA_INCLUDE_DIR AND LUA_LIBRARIES)
+            set(LUA_FOUND TRUE)
+        endif ()
+    endif ()
+endif ()
+
+set(EXTRA_RUNTIME_LIB_DIRS ${USER_LOCAL_LIB_DIRS})
+foreach (_lib ${ICU_LIBRARIES} ${V8_LIBRARIES} ${LUA_LIBRARIES})
+    if (EXISTS "${_lib}")
+        get_filename_component(_lib_dir "${_lib}" DIRECTORY)
+        list(APPEND EXTRA_RUNTIME_LIB_DIRS "${_lib_dir}")
+    endif ()
+endforeach ()
+list(REMOVE_DUPLICATES EXTRA_RUNTIME_LIB_DIRS)
+
+set(CMAKE_BUILD_RPATH "${EXTRA_RUNTIME_LIB_DIRS};${CMAKE_CURRENT_BINARY_DIR}")
+set(CMAKE_INSTALL_RPATH "${EXTRA_RUNTIME_LIB_DIRS};${CMAKE_CURRENT_BINARY_DIR}")
+
+string(REPLACE ";" ":" EXTRA_TEST_LD_LIBRARY_PATH "${EXTRA_RUNTIME_LIB_DIRS}")
+if (EXTRA_TEST_LD_LIBRARY_PATH)
+    set(EXTRA_TEST_LD_LIBRARY_PATH "${EXTRA_TEST_LD_LIBRARY_PATH}:")
+endif ()
+
+INCLUDE_DIRECTORIES(BEFORE ${CMAKE_INSTALL_PREFIX}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${ICU_INCLUDE_DIRS}
+        ${V8_INCLUDE_DIR}
+        ${SNAPPY_INCLUDE_DIR}
+        ${phosphor_SOURCE_DIR}/include)
+
+if (LUA_FOUND)
+    include_directories(AFTER SYSTEM {LUA_INCLUDE_DIR})
+endif (LUA_FOUND)
 
 # Create two object libraries, one for the core couchstore code
 ADD_LIBRARY(couchstore_objs OBJECT
@@ -569,7 +707,7 @@ ADD_LIBRARY(couchstore_view_objs OBJECT
         src/views/compaction.cc
         $<TARGET_OBJECTS:couchstore_objs>)
 TARGET_COMPILE_DEFINITIONS(couchstore_view_objs PUBLIC -Dcouchstore_EXPORTS)
-TARGET_LINK_LIBRARIES(couchstore_view_objs PUBLIC Folly::headers cbcrypto)
+TARGET_LINK_LIBRARIES(couchstore_view_objs PUBLIC Folly::headers platform cbcrypto)
 SET_PROPERTY(TARGET couchstore_view_objs PROPERTY POSITION_INDEPENDENT_CODE 1)
 cb_enable_unity_build(couchstore_view_objs)
 
@@ -605,6 +743,41 @@ TARGET_INCLUDE_DIRECTORIES(couchstore_static PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${CMAKE_CURRENT_BINARY_DIR}/include)
 
+add_custom_command(
+    OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/libcouchstore.a"
+    COMMAND "${PYTHON_EXE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/bundle_static.py"
+            "${CMAKE_CURRENT_BINARY_DIR}/libcouchstore.a"
+            "$<TARGET_FILE:couchstore_static>"
+            "$<TARGET_FILE:cbcompress>"
+            "$<TARGET_FILE:cbcrypto>"
+            "$<TARGET_FILE:platform>"
+            "$<TARGET_FILE:phosphor>"
+            "$<TARGET_FILE:fmt>"
+            "$<TARGET_FILE:glog>"
+            "$<TARGET_FILE:snappy>"
+            "$<TARGET_FILE:folly>"
+            "$<TARGET_FILE:double-conversion>"
+            "$<TARGET_FILE:gflags_nothreads_static>"
+            "$<TARGET_FILE:simdutf>"
+            "$<TARGET_FILE:spdlog>"
+            "$<TARGET_FILE:platform_cbassert>"
+            "${libsodium_BINARY_DIR}/lib/libsodium.a"
+            "${openssl_BINARY_DIR}/lib/libssl.a"
+            "${openssl_BINARY_DIR}/lib/libcrypto.a"
+            "$<TARGET_FILE:zlibstatic>"
+            "${boost_BINARY_DIR}/lib/libboost_context.a"
+            "${boost_BINARY_DIR}/lib/libboost_filesystem.a"
+            "${boost_BINARY_DIR}/lib/libboost_atomic.a"
+            "${boost_BINARY_DIR}/lib/libboost_program_options.a"
+            "${boost_BINARY_DIR}/lib/libboost_regex.a"
+            "${boost_BINARY_DIR}/lib/libboost_system.a"
+            "${boost_BINARY_DIR}/lib/libboost_thread.a"
+    DEPENDS couchstore_static cbcompress cbcrypto platform phosphor fmt glog snappy folly double-conversion gflags_nothreads_static simdutf spdlog platform_cbassert zlibstatic
+    COMMENT "Assembling self-contained static libcouchstore.a"
+)
+
+add_custom_target(couchstore_fat_static ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/libcouchstore.a")
+
 # libcouchstore_views - core couchstore library + view code and is dependent on
 # v8 and icu libraries
 ADD_LIBRARY(couchstore_views SHARED
@@ -624,26 +797,29 @@ target_compile_definitions(couchstore_program_utilities
         PRIVATE DESTINATION_ROOT="${CMAKE_INSTALL_PREFIX}"
         PRODUCT_VERSION="${PRODUCT_VERSION}")
 
-ADD_EXECUTABLE(couch_dbdump
-        src/dbdump.cc
-        src/tracking_file_ops.cc
-        $<TARGET_OBJECTS:couchstore_objs>
-        $<TARGET_OBJECTS:couchstore_view_objs>)
-target_compile_definitions(couch_dbdump
-        PRIVATE DESTINATION_ROOT="${CMAKE_INSTALL_PREFIX}"
-        PRODUCT_VERSION="${PRODUCT_VERSION}")
-SET_TARGET_PROPERTIES(couch_dbdump PROPERTIES COMPILE_FLAGS "-DLIBCOUCHSTORE_NO_VISIBILITY=1")
-TARGET_INCLUDE_DIRECTORIES(couch_dbdump
-        PRIVATE
-        ${CMAKE_CURRENT_BINARY_DIR}/include
-        ${FLATBUFFERS_INCLUDE_DIR})
+if (TARGET mcbp)
+    ADD_EXECUTABLE(couch_dbdump
+            src/dbdump.cc
+            src/tracking_file_ops.cc
+            $<TARGET_OBJECTS:couchstore_objs>
+            $<TARGET_OBJECTS:couchstore_view_objs>)
+    target_compile_definitions(couch_dbdump
+            PRIVATE DESTINATION_ROOT="${CMAKE_INSTALL_PREFIX}"
+            PRODUCT_VERSION="${PRODUCT_VERSION}")
+    SET_TARGET_PROPERTIES(couch_dbdump PROPERTIES COMPILE_FLAGS "-DLIBCOUCHSTORE_NO_VISIBILITY=1")
+    TARGET_INCLUDE_DIRECTORIES(couch_dbdump
+            PRIVATE
+            ${CMAKE_CURRENT_BINARY_DIR}/include
+            ${FLATBUFFERS_INCLUDE_DIR})
 
-TARGET_LINK_LIBRARIES(couch_dbdump
-        mcbp
-        xattr
-        ep-engine_collections
-        ep-engine_storage_common
-        ${COUCHSTORE_VIEW_LIBS} gsl::gsl-lite)
+    TARGET_LINK_LIBRARIES(couch_dbdump
+            mcbp
+            xattr
+            ep-engine_collections
+            ep-engine_storage_common
+            ${COUCHSTORE_VIEW_LIBS} gsl::gsl-lite)
+    set(COUCH_DBDUMP_TARGET couch_dbdump)
+endif ()
 
 ADD_EXECUTABLE(couch_check
         src/check.cc)
@@ -680,9 +856,11 @@ ADD_EXECUTABLE(couch_view_group_compactor src/views/bin/couch_view_group_compact
 TARGET_LINK_LIBRARIES(couch_view_group_compactor couchstore_views)
 TARGET_INCLUDE_DIRECTORIES(couch_view_group_compactor PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/include)
 
-cb_add_test_executable(couch_create src/couch_create.cc src/crc32.cc)
-TARGET_LINK_LIBRARIES(couch_create couchstore platform gsl::gsl-lite)
-TARGET_INCLUDE_DIRECTORIES(couch_create PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/include)
+if (TARGET mcbp)
+    cb_add_test_executable(couch_create src/couch_create.cc src/crc32.cc)
+    TARGET_LINK_LIBRARIES(couch_create couchstore platform gsl::gsl-lite)
+    TARGET_INCLUDE_DIRECTORIES(couch_create PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/include)
+endif ()
 
 IF (APPLE)
     SET_TARGET_PROPERTIES(couchstore
@@ -693,7 +871,7 @@ ENDIF (APPLE)
 INSTALL(TARGETS
         couchstore
         couchstore_views
-        couch_dbdump
+        ${COUCH_DBDUMP_TARGET}
         couch_dbinfo
         couch_dbck
         couch_compact
@@ -713,26 +891,35 @@ CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/config.cmake.h.in
 # Tests:
 IF (LUA_FOUND)
     cb_add_test_executable(couchscript src/couchscript.cc)
-    SET_TARGET_PROPERTIES(couchscript PROPERTIES COMPILE_FLAGS
-            -I${LUA_INCLUDE_DIR})
-    TARGET_LINK_LIBRARIES(couchscript couchstore ${LUA_LIBRARIES})
+    TARGET_INCLUDE_DIRECTORIES(couchscript PRIVATE ${LUA_INCLUDE_DIR})
+    TARGET_LINK_LIBRARIES(couchscript couchstore platform ${LUA_LIBRARIES})
 
-    ADD_TEST(couchstore-localdoc
-            couchscript ${CMAKE_CURRENT_SOURCE_DIR}/tests/localdoc.lua)
-    ADD_TEST(couchstore-corrupt
-            couchscript ${CMAKE_CURRENT_SOURCE_DIR}/tests/corrupt.lua)
-    ADD_TEST(couchstore-bulk
-            couchscript ${CMAKE_CURRENT_SOURCE_DIR}/tests/bulk.lua)
-    ADD_TEST(couchstore-changes-since-filter
-            couchscript ${CMAKE_CURRENT_SOURCE_DIR}/tests/changessincefilter.lua)
-    ADD_TEST(couchstore-compact
-            couchscript ${CMAKE_CURRENT_SOURCE_DIR}/tests/compact.lua)
-    ADD_TEST(couchstore-dropdel
-            couchscript ${CMAKE_CURRENT_SOURCE_DIR}/tests/dropdel.lua)
-    ADD_TEST(couchstore-largefile
-            couchscript ${CMAKE_CURRENT_SOURCE_DIR}/tests/largefile.lua)
-    ADD_TEST(couchstore-large
-            couchscript ${CMAKE_CURRENT_SOURCE_DIR}/tests/large.lua)
+    ADD_TEST(NAME couchstore-localdoc
+            COMMAND couchscript ${CMAKE_CURRENT_SOURCE_DIR}/tests/localdoc.lua)
+    ADD_TEST(NAME couchstore-corrupt
+            COMMAND couchscript ${CMAKE_CURRENT_SOURCE_DIR}/tests/corrupt.lua)
+    ADD_TEST(NAME couchstore-bulk
+            COMMAND couchscript ${CMAKE_CURRENT_SOURCE_DIR}/tests/bulk.lua)
+    ADD_TEST(NAME couchstore-changes-since-filter
+            COMMAND couchscript ${CMAKE_CURRENT_SOURCE_DIR}/tests/changessincefilter.lua)
+    ADD_TEST(NAME couchstore-compact
+            COMMAND couchscript ${CMAKE_CURRENT_SOURCE_DIR}/tests/compact.lua)
+    ADD_TEST(NAME couchstore-dropdel
+            COMMAND couchscript ${CMAKE_CURRENT_SOURCE_DIR}/tests/dropdel.lua)
+    ADD_TEST(NAME couchstore-largefile
+            COMMAND couchscript ${CMAKE_CURRENT_SOURCE_DIR}/tests/largefile.lua)
+    ADD_TEST(NAME couchstore-large
+            COMMAND couchscript ${CMAKE_CURRENT_SOURCE_DIR}/tests/large.lua)
+    set_tests_properties(
+            couchstore-localdoc
+            couchstore-corrupt
+            couchstore-bulk
+            couchstore-changes-since-filter
+            couchstore-compact
+            couchstore-dropdel
+            couchstore-largefile
+            couchstore-large
+            PROPERTIES ENVIRONMENT "LD_LIBRARY_PATH=${EXTRA_TEST_LD_LIBRARY_PATH}${CMAKE_CURRENT_BINARY_DIR}:$ENV{LD_LIBRARY_PATH}")
 ENDIF (LUA_FOUND)
 
 FUNCTION(M_ADD_PYTHON_TEST name pyfile)
@@ -746,7 +933,7 @@ FUNCTION(M_ADD_PYTHON_TEST name pyfile)
     ADD_TEST(${name} ${PYTHON_EXE} ${pyfile})
     SET_PROPERTY(TEST ${name} PROPERTY ENVIRONMENT
             "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/python"
-            "LD_LIBRARY_PATH=${CMAKE_CURRENT_BINARY_DIR}:${CMAKE_INSTALL_PREFIX}/lib")
+            "LD_LIBRARY_PATH=${EXTRA_TEST_LD_LIBRARY_PATH}${CMAKE_CURRENT_BINARY_DIR}:${CMAKE_INSTALL_PREFIX}/lib")
 
     # If building with TSan, we need to explicitly load the TSan
     # runtime library via LD_PRELOAD, as while libcouchstore.so does
@@ -907,6 +1094,15 @@ if (NOT DEFINED CB_THREADSANITIZER AND NOT DEFINED CB_ADDRESSSANITIZER)
     ADD_TEST(NAME couchstore-mapreduce-map-test COMMAND couchstore_mapreduce-map-test ${CMAKE_INSTALL_PREFIX}/bin/)
     ADD_TEST(NAME couchstore-mapreduce-reduce-test COMMAND couchstore_mapreduce-reduce-test ${CMAKE_INSTALL_PREFIX}/bin/)
     ADD_TEST(NAME couchstore-testapp COMMAND couchstore_testapp ${CMAKE_INSTALL_PREFIX}/bin/)
+    set_tests_properties(
+            couchstore-file-deduper-test
+            couchstore-file-merge-test
+            couchstore-file-sorter-test
+            couchstore-mapreduce-builtin-test
+            couchstore-mapreduce-map-test
+            couchstore-mapreduce-reduce-test
+            couchstore-testapp
+            PROPERTIES ENVIRONMENT "LD_LIBRARY_PATH=${EXTRA_TEST_LD_LIBRARY_PATH}${CMAKE_CURRENT_BINARY_DIR}:$ENV{LD_LIBRARY_PATH}")
 endif ()
 
 ADD_TEST(couchstore-gtest couchstore_gtest)
@@ -914,5 +1110,71 @@ ADD_TEST(couchstore-internal-gtest couchstore_internal_gtest)
 ADD_TEST(couchstore-wrapped_fileops-test couchstore_wrapped_fileops_test)
 
 ADD_SUBDIRECTORY(programs)
+
+add_custom_target(couchstore_everything
+        DEPENDS
+        couchstore
+        couchstore_static
+        couchstore_fat_static
+        couchstore_views
+        couch_check
+        couch_dbck
+        couch_dbinfo
+        couch_compact
+        couch_view_file_merger
+        couch_view_index_builder
+        couch_view_group_cleanup
+        couch_view_index_updater
+        couch_view_group_compactor
+        dbdiff
+        hex2bin
+        couch_recommit
+        couchstore_file-deduper-test
+        couchstore_file-merger-test
+        couchstore_file-sorter-test
+        couchstore_mapreduce-builtin-test
+        couchstore_mapreduce-map-test
+        couchstore_mapreduce-reduce-test
+        couchstore_testapp
+        couchstore_gtest
+        couchstore_internal_gtest
+        couchstore_wrapped_fileops_test
+)
+if (TARGET couchscript)
+    add_dependencies(couchstore_everything couchscript)
+endif ()
+if (TARGET couch_create)
+    add_dependencies(couchstore_everything couch_create)
+endif ()
+if (TARGET couch_dbdump)
+    add_dependencies(couchstore_everything couch_dbdump)
+endif ()
+
+set(COUCHSTORE_DIST_DIR "${CMAKE_BINARY_DIR}/dist")
+add_custom_target(couchstore_dist
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${COUCHSTORE_DIST_DIR}/include/libcouchstore"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${COUCHSTORE_DIST_DIR}/lib"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${COUCHSTORE_DIST_DIR}/bin"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/include/libcouchstore" "${COUCHSTORE_DIST_DIR}/include/libcouchstore"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_BINARY_DIR}/include/libcouchstore/visibility.h" "${COUCHSTORE_DIST_DIR}/include/libcouchstore/visibility.h"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:couchstore>" "${COUCHSTORE_DIST_DIR}/lib/"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_BINARY_DIR}/libcouchstore.a" "${COUCHSTORE_DIST_DIR}/lib/"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:couchstore_views>" "${COUCHSTORE_DIST_DIR}/lib/"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:couch_check>" "${COUCHSTORE_DIST_DIR}/bin/"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:couch_dbck>" "${COUCHSTORE_DIST_DIR}/bin/"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:couch_dbinfo>" "${COUCHSTORE_DIST_DIR}/bin/"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:couch_compact>" "${COUCHSTORE_DIST_DIR}/bin/"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:couch_recommit>" "${COUCHSTORE_DIST_DIR}/bin/"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:dbdiff>" "${COUCHSTORE_DIST_DIR}/bin/"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:hex2bin>" "${COUCHSTORE_DIST_DIR}/bin/"
+    DEPENDS couchstore couchstore_fat_static couchstore_views couch_check couch_dbck couch_dbinfo couch_compact couch_recommit dbdiff hex2bin
+    COMMENT "Assembling couchstore distribution package in ${COUCHSTORE_DIST_DIR}"
+)
+if (TARGET couchscript)
+    add_custom_command(TARGET couchstore_dist POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:couchscript>" "${COUCHSTORE_DIST_DIR}/bin/"
+    )
+    add_dependencies(couchstore_dist couchscript)
+endif ()
 
 ENABLE_CODE_COVERAGE_REPORT()

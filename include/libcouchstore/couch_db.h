@@ -20,12 +20,20 @@
 #include <libcouchstore/error.h>
 #include <libcouchstore/file_ops.h>
 
-#include <cbcrypto/common.h>
-
 #include <functional>
 #include <memory>
 #include <optional>
+#include <string_view>
 #include <system_error>
+
+#if __has_include(<cbcrypto/common.h>)
+#include <cbcrypto/common.h>
+#else
+namespace cb::crypto {
+struct KeyDerivationKey;
+using SharedKeyDerivationKey = std::shared_ptr<const KeyDerivationKey>;
+}
+#endif
 
 namespace cb::couchstore {
 

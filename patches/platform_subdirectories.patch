@@ -1,0 +1,37 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index b1893f1..f24ebec 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -519,17 +519,19 @@ install(TARGETS breakpad_wrapper
+         ARCHIVE DESTINATION lib)
+ 
+ add_subdirectory(cbcompress)
+-add_subdirectory(hdrhistogram)
+-add_subdirectory(cbsocket)
+ add_subdirectory(cbcrypto)
+-add_subdirectory(cblogger)
+-add_subdirectory(tests)
+-
+-add_subdirectory(tools)
+-add_test(NAME platform-check-header-define-once-guard
+-        COMMAND check_pragma_once
+-        --rootdir ${Platform_SOURCE_DIR}
+-        --exclude include/platform/simd/scan_sse42.h
+-        --exclude include/platform/simd/scan_neon.h
+-        --exclude external/valgrind/valgrind.h
+-        --exclude external/valgrind/memcheck.h)
++
++if (BUILD_TESTING)
++    add_subdirectory(hdrhistogram)
++    add_subdirectory(cbsocket)
++    add_subdirectory(cblogger)
++    add_subdirectory(tests)
++    add_subdirectory(tools)
++    add_test(NAME platform-check-header-define-once-guard
++            COMMAND check_pragma_once
++            --rootdir ${Platform_SOURCE_DIR}
++            --exclude include/platform/simd/scan_sse42.h
++            --exclude include/platform/simd/scan_neon.h
++            --exclude external/valgrind/valgrind.h
++            --exclude external/valgrind/memcheck.h)
++endif ()
