@@ -288,7 +288,7 @@ set(LIBEVENT_INCLUDE_DIR
 FetchContent_Declare(
         simdutf
         GIT_REPOSITORY https://github.com/couchbasedeps/simdutf.git
-        GIT_TAG v7.0.0
+        GIT_TAG v7.7.1
 )
 
 FetchContent_MakeAvailable(simdutf)
@@ -502,7 +502,7 @@ endif ()
 FetchContent_Declare(
         platform
         GIT_REPOSITORY https://github.com/couchbase/platform.git
-        GIT_TAG master
+        GIT_TAG v7.6.11
         PATCH_COMMAND patch -N include/cbcrypto/file_reader.h < "${CMAKE_CURRENT_LIST_DIR}/patches/cbcrypto_optional.patch" || true
 )
 FetchContent_MakeAvailable(platform)
@@ -512,7 +512,7 @@ target_link_libraries(platform PUBLIC fmt::fmt zlib libsodium::libsodium)
 FetchContent_Declare(
         phosphor
         GIT_REPOSITORY https://github.com/couchbase/phosphor.git
-        GIT_TAG master
+        GIT_TAG v7.6.12
 )
 FetchContent_MakeAvailable(phosphor)
 
