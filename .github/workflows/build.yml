@@ -1,0 +1,162 @@
+name: Build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    if: "!contains(toJson(github.event.commits), 'chore:') && !contains(github.event.head_commit.message, 'chore:')"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Mark workspace as safe
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" || true
+
+      - name: Cache build directory
+        uses: actions/cache@v4
+        continue-on-error: true
+        with:
+          path: build
+          key: ${{ runner.os }}-build-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-build-
+
+      - name: Install dependencies
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          if command -v sudo >/dev/null 2>&1; then SUDO="sudo"; else SUDO=""; fi
+          $SUDO apt-get update
+          $SUDO apt-get install -y --no-install-recommends \
+            ca-certificates \
+            build-essential \
+            cmake \
+            ninja-build \
+            git \
+            patch \
+            perl \
+            pkg-config \
+            autoconf \
+            automake \
+            libtool \
+            m4 \
+            python3 \
+            python3-snappy \
+            libsnappy-dev \
+            libicu-dev \
+            libnode-dev \
+            libc-ares-dev \
+            liblua5.1-0-dev \
+            curl \
+            tar
+
+      - name: Configure CMake
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_C_COMPILER=gcc \
+                -DCMAKE_CXX_COMPILER=g++
+
+      - name: Build
+        run: |
+          cmake --build build --target couchstore_everything -j"$(nproc)"
+          cmake --build build -j"$(nproc)"
+          cmake --build build --target couchstore_dist
+
+      - name: Test
+        run: |
+          ctest -j"$(nproc)" --test-dir build --output-on-failure
+
+      - name: Verify build artifacts
+        run: |
+          test -f build/dist/include/libcouchstore/couch_db.h
+          test -f build/dist/include/libcouchstore/visibility.h
+          test -f build/dist/lib/libcouchstore.so
+          test -f build/dist/lib/libcouchstore.a
+          test -f build/dist/lib/libcouchstore_views.so
+          test -f build/dist/bin/couch_check
+          test -f build/dist/bin/couch_dbck
+          test -f build/dist/bin/couch_dbinfo
+          test -f build/dist/bin/couch_compact
+          test -f build/dist/bin/couch_recommit
+          test -f build/dist/bin/dbdiff
+          test -f build/dist/bin/hex2bin
+          test -f build/dist/bin/couchscript
+
+      - name: Create release distribution archive
+        run: |
+          tar -czf couchstore-Linux-amd64.tar.gz -C build/dist .
+
+      - name: Upload release archive artifact
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: couchstore-Linux-amd64.tar.gz
+          path: couchstore-Linux-amd64.tar.gz
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Publish GitHub Release
+        if: (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')) && github.server_url == 'https://github.com'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: "Couchstore Latest Release"
+          files: couchstore-Linux-amd64.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish Gitea Release
+        if: (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')) && github.server_url != 'https://github.com'
+        continue-on-error: true
+        run: |
+          SERVER_URL="${{ github.server_url }}"
+          REPO="${{ github.repository }}"
+          TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          TAG="latest"
+          NAME="Couchstore Latest Release"
+          ARCHIVE="couchstore-Linux-amd64.tar.gz"
+
+          echo "Publishing release to Gitea: $SERVER_URL/api/v1/repos/$REPO/releases"
+
+          RELEASE_INFO=$(curl -s -k -H "Authorization: token $TOKEN" \
+            "$SERVER_URL/api/v1/repos/$REPO/releases/tags/$TAG" 2>/dev/null || true)
+          RELEASE_ID=$(echo "$RELEASE_INFO" | grep -o '"id":[0-9]*' | head -n 1 | cut -d':' -f2 || true)
+
+          if [ -z "$RELEASE_ID" ] || [ "$RELEASE_ID" = "0" ]; then
+            CREATE_RES=$(curl -s -k -X POST \
+              -H "Authorization: token $TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"tag_name\":\"$TAG\",\"name\":\"$NAME\",\"target_commitish\":\"master\"}" \
+              "$SERVER_URL/api/v1/repos/$REPO/releases" 2>/dev/null || true)
+            RELEASE_ID=$(echo "$CREATE_RES" | grep -o '"id":[0-9]*' | head -n 1 | cut -d':' -f2 || true)
+          fi
+
+          if [ -n "$RELEASE_ID" ] && [ "$RELEASE_ID" != "0" ]; then
+            ASSET_ID=$(curl -s -k -H "Authorization: token $TOKEN" \
+              "$SERVER_URL/api/v1/repos/$REPO/releases/$RELEASE_ID/assets" 2>/dev/null | \
+              grep -o '"id":[0-9]*,"name":"'"$ARCHIVE"'"' | head -n 1 | cut -d':' -f2 | cut -d',' -f1 || true)
+            if [ -n "$ASSET_ID" ]; then
+              curl -s -k -X DELETE -H "Authorization: token $TOKEN" \
+                "$SERVER_URL/api/v1/repos/$REPO/releases/$RELEASE_ID/assets/$ASSET_ID" 2>/dev/null || true
+            fi
+
+            curl -s -k -X POST \
+              -H "Authorization: token $TOKEN" \
+              -H "Content-Type: multipart/form-data" \
+              -F "attachment=@$ARCHIVE" \
+              "$SERVER_URL/api/v1/repos/$REPO/releases/$RELEASE_ID/assets?name=$ARCHIVE"
+            echo "Release published to Gitea successfully."
+          else
+            echo "Could not obtain release ID from Gitea."
+          fi

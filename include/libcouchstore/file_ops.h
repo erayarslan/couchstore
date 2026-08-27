@@ -15,8 +15,16 @@
  */
 #pragma once
 
+#if __has_include(<folly/portability/SysTypes.h>)
 #include <folly/portability/SysTypes.h>
 #include <folly/portability/Windows.h>
+#elif defined(_WIN32)
+#include <windows.h>
+#include <basetsd.h>
+typedef SSIZE_T ssize_t;
+#else
+#include <sys/types.h>
+#endif
 #include <cstdint>
 
 #include "couch_common.h"
