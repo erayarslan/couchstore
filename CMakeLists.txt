@@ -506,7 +506,7 @@ endif ()
 FetchContent_Declare(
         platform
         GIT_REPOSITORY https://github.com/couchbase/platform.git
-        GIT_TAG v7.6.11
+        GIT_TAG master
         PATCH_COMMAND patch -N include/cbcrypto/file_reader.h < "${CMAKE_CURRENT_LIST_DIR}/patches/cbcrypto_optional.patch" || true
 )
 FetchContent_MakeAvailable(platform)
@@ -516,7 +516,7 @@ target_link_libraries(platform PUBLIC fmt::fmt zlib libsodium::libsodium)
 FetchContent_Declare(
         phosphor
         GIT_REPOSITORY https://github.com/couchbase/phosphor.git
-        GIT_TAG v7.6.12
+        GIT_TAG master
 )
 FetchContent_MakeAvailable(phosphor)
 
