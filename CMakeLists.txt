@@ -320,6 +320,11 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(zlib)
 set_target_properties(zlib PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(zlib PUBLIC ${zlib_SOURCE_DIR} ${zlib_BINARY_DIR})
+if (TARGET zlibstatic)
+    set_target_properties(zlibstatic PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    target_include_directories(zlibstatic PUBLIC ${zlib_SOURCE_DIR} ${zlib_BINARY_DIR})
+endif ()
 
 set(ZLIB_INCLUDE_DIR "${zlib_SOURCE_DIR}" CACHE PATH "" FORCE)
 set(ZLIB_INCLUDE_DIRS "${zlib_SOURCE_DIR};${zlib_BINARY_DIR}" CACHE STRING "" FORCE)
@@ -523,10 +528,13 @@ FetchContent_Declare(
         platform
         GIT_REPOSITORY https://github.com/couchbase/platform.git
         GIT_TAG master
-        PATCH_COMMAND patch -N include/cbcrypto/file_reader.h < "${CMAKE_CURRENT_LIST_DIR}/patches/cbcrypto_optional.patch" || true && patch -N CMakeLists.txt < "${CMAKE_CURRENT_LIST_DIR}/patches/platform_subdirectories.patch" || true
+        PATCH_COMMAND patch -N include/cbcrypto/file_reader.h < "${CMAKE_CURRENT_LIST_DIR}/patches/cbcrypto_optional.patch" || true && patch -N CMakeLists.txt < "${CMAKE_CURRENT_LIST_DIR}/patches/platform_subdirectories.patch" || true && patch -N cbcompress/compress.cc < "${CMAKE_CURRENT_LIST_DIR}/patches/platform_cbcompress_resize.patch" || true
 )
 FetchContent_MakeAvailable(platform)
-target_include_directories(platform PUBLIC ${fmt_SOURCE_DIR}/include ${zlib_SOURCE_DIR} ${platform_SOURCE_DIR}/cbcrypto)
+if (TARGET cbcompress)
+    set_target_properties(cbcompress PROPERTIES CXX_STANDARD 23)
+endif ()
+target_include_directories(platform PUBLIC ${fmt_SOURCE_DIR}/include ${zlib_SOURCE_DIR} ${zlib_BINARY_DIR} ${platform_SOURCE_DIR}/cbcrypto)
 target_link_libraries(platform PUBLIC fmt::fmt zlib libsodium::libsodium)
 
 FetchContent_Declare(

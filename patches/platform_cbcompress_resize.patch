@@ -1,0 +1,39 @@
+--- a/cbcompress/compress.cc
++++ b/cbcompress/compress.cc
+@@ -55,12 +55,17 @@
+ 
+     bool success = false;
+     std::string ret;
++#if defined(__cpp_lib_string_resize_and_overwrite)
+     ret.resize_and_overwrite(
+             inflated_length, [&input, &success](char* data, size_t size) {
+                 success =
+                         snappy::RawUncompress(input.data(), input.size(), data);
+                 return size;
+             });
++#else
++    ret.resize(inflated_length);
++    success = snappy::RawUncompress(input.data(), input.size(), ret.data());
++#endif
+     if (!success) {
+         throw std::runtime_error(
+                 "cb::compression::inflateSnappy: Failed to inflate data");
+@@ -82,6 +87,7 @@
+             snappy::MaxCompressedLength(input.size());
+     size_t compressed_length = max_compressed_length;
+     std::string ret;
++#if defined(__cpp_lib_string_resize_and_overwrite)
+     ret.resize_and_overwrite(
+             max_compressed_length,
+             [&input, &compressed_length](char* data, size_t size) {
+@@ -89,6 +95,11 @@
+                         input.data(), input.size(), data, &compressed_length);
+                 return compressed_length;
+             });
++#else
++    ret.resize(max_compressed_length);
++    snappy::RawCompress(input.data(), input.size(), ret.data(), &compressed_length);
++    ret.resize(compressed_length);
++#endif
+     return ret;
+ }
